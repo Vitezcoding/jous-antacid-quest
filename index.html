@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antacid Adventure</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #333333;
+            background-image: url('https://www.transparenttextures.com/patterns/dark-brick-wall.png');
+            background-repeat: repeat;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            touch-action: none;
+        }
+        #gameCanvas {
+            border: 2px solid #1a1a1a;
+            background-color: #4a4a4a;
+            touch-action: none;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            text-shadow: 1px 1px 2px black;
+            font-size: calc(2vmin);
+            z-index: 10;
+        }
+        #portrait {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            max-width: 15vmin;
+            max-height: 15vmin;
+            object-fit: contain;
+            display: none;
+            z-index: 10;
+        }
+        #gameOver {
+            display: none;
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: calc(2vmin);
+            z-index: 20;
+        }
+        #restartButton {
+            margin-top: 10px;
+            padding: 10px 20px;
+            font-size: calc(2vmin);
+            cursor: pointer;
+            background-color: #555555;
+            border: 1px solid #ffffff;
+            color: white;
+        }
+        #touchControls {
+            display: none;
+            position: fixed;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 15;
+        }
+        .touchButton {
+            width: calc(40vmin);
+            height: calc(50vmin);
+            background: rgba(255, 255, 255, 0.7);
+            color: black;
+            font-size: calc(5vmin);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            border: 2px solid #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            opacity: 0.9;
+        }
+        #burpMeter {
+            width: calc(25vmin);
+            height: calc(4vmin);
+            background: green; /* Changed to green background */
+        }
+        #burpMeterFill {
+            width: 0%;
+            height: 100%;
+            background: red; /* Changed to red fill */
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>Burps: <span id="burpCount">0</span>/5</div>
+        <div>Score: <span id="score">0</span></div>
+        <div>Burp Meter: <div id="burpMeter"><div id="burpMeterFill"></div></div></div>
+    </div>
+    <img id="portrait" src="portrait1.png" alt="Character Portrait" onload="this.style.display='block'" onerror="this.style.display='none'">
+    <div id="gameOver">
+        <h2>Game Over!</h2>
+        <p>Final Score: <span id="finalScore"></span></p>
+        <p>'[...]Then will come some people who will make vows but will not fulfill them; and they will be dishonest and will not be trustworthy, and they will give their witness without being asked to give their witness, and fatness will appear among them.'</p>
+        <p>-Sahih al-Bukhari 6695</p>
+        <button id="restartButton">Restart</button>
+    </div>
+    <div id="touchControls">
+        <div id="leftButton" class="touchButton">←</div>
+        <div id="rightButton" class="touchButton">→</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const burpCountDisplay = document.getElementById('burpCount');
+        const scoreDisplay = document.getElementById('score');
+        const burpMeterFill = document.getElementById('burpMeterFill');
+        const gameOverScreen = document.getElementById('gameOver');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const restartButton = document.getElementById('restartButton');
+        const touchControls = document.getElementById('touchControls');
+        const leftButton = document.getElementById('leftButton');
+        const rightButton = document.getElementById('rightButton');
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            const isTouch = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+            const touchControlsHeight = isTouch ? Math.max(100, window.innerHeight * 0.2) : 0;
+
+            const canvasHeight = isTouch 
+                ? Math.min(window.innerHeight * 0.66, window.innerHeight - touchControlsHeight)
+                : Math.min(window.innerHeight * 0.9, window.innerHeight - touchControlsHeight); // taller on desktop
+        
+            canvas.height = canvasHeight;
+            player.y = canvas.height - player.height;
+            player.x = canvas.width / 2 - player.width;
+        }
+
+
+        let player = {
+            x: 0,
+            y: 0,
+            width: Math.min(50, window.innerWidth * 0.1) * 2,
+            height: Math.min(50, window.innerWidth * 0.1) *1.5,
+            speed: Math.max(5, window.innerWidth * 0.01),
+            image: new Image()
+        };
+        player.image.src = './avatar.png';
+
+        let items = [];
+        let burpMeter = 0;
+        let burpCount = 0;
+        let score = 0;
+        let gameOver = false;
+        let gameTime = 0;
+        const BURP_MAX = 100;
+        const BURP_TIME = 30 * 1000;
+        const BURP_THRESHOLD = 5;
+        const BASE_ITEM_SPAWN_RATE = 0.02;
+        const MAX_ITEM_SPAWN_RATE = 0.10;
+        const BASE_ITEM_SPEED = 2;
+        const FOOD_BURP_INCREASE = 10;
+        const burpSounds = [
+        new Audio('burp1.mp3'),
+        new Audio('burp2.mp3'),
+        new Audio('burp3.mp3'),
+        new Audio('burp4.mp3'),
+        new Audio('burp5.mp3')
+    ];
+
+
+        const portraitImages = [
+            'portrait1.png',
+            'portrait2.png',
+            'portrait3.png',
+            'portrait4.png',
+            'portrait5.png',
+            'portrait6.png'
+        ];
+        const portraitElement = document.getElementById('portrait');
+
+
+
+        const medicineImage = new Image();
+        medicineImage.src = 'medicine.png';
+        const medicine2Image = new Image();
+        medicine2Image.src = 'medicine2.png';
+        const foodImages = [
+            new Image(), new Image(), new Image(), new Image(), new Image(), new Image()
+        ];
+        foodImages[0].src = 'food1.png';
+        foodImages[1].src = 'food2.png';
+        foodImages[2].src = 'food3.png';
+        foodImages[3].src = 'food4.png';
+        foodImages[4].src = 'food5.png';
+        foodImages[5].src = 'food6.png';
+        const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+        let keys = {};
+
+        if (isTouchDevice) {
+            touchControls.style.display = 'flex';
+        } else {
+            touchControls.style.display = 'none';
+        }
+
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        function getAntacidProbability() {
+            const maxTime = 30 * 1000;
+            const progress = Math.min(gameTime / maxTime, 1);
+            return 0.5 - 0.3 * progress;
+        }
+
+        function getItemSpeed() {
+            const maxTime = 30 * 1000;
+            const progress = Math.min(gameTime / maxTime, 1);
+            return BASE_ITEM_SPEED + 3 * progress;
+        }
+
+        function getSpawnRate() {
+            const maxTime = 30 * 1000;
+            const progress = Math.min(gameTime / maxTime, 1);
+            return BASE_ITEM_SPAWN_RATE + (MAX_ITEM_SPAWN_RATE - BASE_ITEM_SPAWN_RATE) * progress;
+        }
+
+        function spawnItem() {
+    if (Math.random() < getSpawnRate()) {
+        const rand = Math.random();
+        let type = 'food';
+        if (rand < 0.05) {
+            type = 'medicine2';
+        } else if (rand < getAntacidProbability()) {
+            type = 'antacid';
+        }
+
+        const item = {
+            x: Math.random() * (canvas.width - Math.min(40, canvas.width * 0.07)),
+            y: 0,
+            width: Math.min(40, canvas.width * 0.07),
+            height: Math.min(40, canvas.width * 0.07),
+            type: type,
+            speed: getItemSpeed()
+        };
+
+        if (type === 'food') {
+            item.foodIndex = Math.floor(Math.random() * 6);
+        }
+
+        items.push(item);
+    }
+}
+
+
+            function updateBurpMeter(deltaTime) {
+        burpMeter += (deltaTime / BURP_TIME) * BURP_MAX;
+        if (burpMeter >= BURP_MAX) {
+            burpMeter = 0;
+            burpCount++;
+            burpCountDisplay.textContent = burpCount;
+
+            // Play burp sound
+            if (burpSounds[burpCount - 1]) {
+                burpSounds[burpCount - 1].play();
+            }
+
+            // Change portrait image if exists
+            if (portraitImages[burpCount]) {
+                portraitElement.src = portraitImages[burpCount];
+                portraitElement.style.display = 'block';
+            }
+
+            if (burpCount >= BURP_THRESHOLD) {
+                gameOver = true;
+                gameOverScreen.style.display = 'block';
+                finalScoreDisplay.textContent = score;
+            }
+        }
+        burpMeterFill.style.width = `${burpMeter}%`;
+    }
+
+
+        function checkCollisions() {
+            items = items.filter(item => item.y < canvas.height);
+            items.forEach((item, index) => {
+                if (
+                    player.x < item.x + item.width &&
+                    player.x + player.width > item.x &&
+                    player.y < item.y + item.height &&
+                    player.y + player.height > item.y
+                ) {
+                   if (item.type === 'antacid') {
+    burpMeter = Math.max(0, burpMeter - 25);
+} else if (item.type === 'medicine2') {
+    burpMeter = 0;
+} else { // food
+    const foodScore = (item.foodIndex + 1) * 10;
+    score += foodScore;
+    scoreDisplay.textContent = score;
+    burpMeter = Math.min(BURP_MAX, burpMeter + FOOD_BURP_INCREASE);
+}
+
+                    items.splice(index, 1);
+                }
+            });
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (player.image.complete && player.image.naturalWidth !== 0) {
+                ctx.drawImage(player.image, player.x, player.y, player.width, player.height);
+            } else {
+                ctx.fillStyle = 'blue';
+                ctx.fillRect(player.x, player.y, player.width, player.height);
+            }
+            items.forEach(item => {
+    if (item.type === 'antacid') {
+        if (medicineImage.complete && medicineImage.naturalWidth !== 0) {
+            ctx.drawImage(medicineImage, item.x, item.y, item.width, item.height);
+        } else {
+            ctx.fillStyle = 'green';
+            ctx.fillRect(item.x, item.y, item.width, item.height);
+        }
+    } else if (item.type === 'medicine2') {
+        if (medicine2Image.complete && medicine2Image.naturalWidth !== 0) {
+            ctx.drawImage(medicine2Image, item.x, item.y, item.width, item.height);
+        } else {
+            ctx.fillStyle = 'cyan';
+            ctx.fillRect(item.x, item.y, item.width, item.height);
+        }
+    } else {
+        const foodImage = foodImages[item.foodIndex];
+        if (foodImage.complete && foodImage.naturalWidth !== 0) {
+            ctx.drawImage(foodImage, item.x, item.y, item.width, item.height);
+        } else {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(item.x, item.y, item.width, item.height);
+        }
+    }
+});
+
+        }
+
+        function handleTouchControls() {
+            leftButton.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                keys['ArrowLeft'] = true;
+            });
+            leftButton.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                keys['ArrowLeft'] = false;
+            });
+            leftButton.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                keys['ArrowLeft'] = false;
+            });
+            rightButton.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                keys['ArrowRight'] = true;
+            });
+            rightButton.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                keys['ArrowRight'] = false;
+            });
+            rightButton.addEventListener('touchcancel', (e) => {
+                e.preventDefault();
+                keys['ArrowRight'] = false;
+            });
+        }
+
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+    const deltaTime = timestamp - lastTime;
+    lastTime = timestamp;
+
+    if (!gameOver) {
+        gameTime += deltaTime;
+
+        if (keys['ArrowLeft'] && player.x > 0) player.x -= player.speed;
+        if (keys['ArrowRight'] && player.x < canvas.width - player.width) player.x += player.speed;
+
+        items.forEach(item => item.y += item.speed);
+        spawnItem();
+        checkCollisions();
+        updateBurpMeter(deltaTime);
+        draw();
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+        document.addEventListener('keydown', e => keys[e.key] = true);
+        document.addEventListener('keyup', e => keys[e.key] = false);
+
+        if (isTouchDevice) {
+            handleTouchControls();
+        }
+
+        restartButton.addEventListener('click', () => {
+            burpMeter = 0;
+            burpCount = 0;
+            score = 0;
+            gameTime = 0;
+            items = [];
+            gameOver = false;
+            burpCountDisplay.textContent = burpCount;
+            scoreDisplay.textContent = score;
+            burpMeterFill.style.width = '0%';
+            gameOverScreen.style.display = 'none';
+            resizeCanvas();
+            lastTime = performance.now(); // reset timer base point
+            portraitElement.src = portraitImages[0];
+            portraitElement.style.display = 'block';
+});
+
+
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
